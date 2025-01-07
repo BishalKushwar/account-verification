@@ -1,10 +1,14 @@
 
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
+
 import { User } from '../models/user.model.js';
+
 import generateVerificationCode from '../utils/generateVerificationCode.js';
 import generateTokenandSetCookie from '../utils/generateTokenandSetCookie.js';
-import { SendVerificationEmail, sendWelcomeEmail } from '../mailtrap/emails.js';
+import { SendVerificationEmail, sendWelcomeEmail, sendPasswordResetEmail } from '../mailtrap/emails.js';
+
 // Register User
 export const registerUser = async (req, res) => {
     const { name, email, password } = req.body;
@@ -115,34 +119,6 @@ export const loginUser = async (req, res) => {
     }
 };
 
-// Get User Profile
-export const getUserProfile = async (req, res) => {
-    try {
-        const user = await User.findById(req.user.id).select('-password');
-        res.status(200).json(user);
-    } catch (error) {
-        console.error('Error in getUserProfile:', error);
-        res.status(500).json({ message: 'Server error' });
-    }
-};
-
-// Update User Profile
-export const updateUserProfile = async (req, res) => {
-    try {
-        const updates = req.body;
-
-        if (updates.password) {
-            updates.password = await bcrypt.hash(updates.password, 10);
-        }
-
-        const user = await User.findByIdAndUpdate(req.user.id, updates, { new: true }).select('-password');
-        res.status(200).json(user);
-    } catch (error) {
-        console.error('Error in updateUserProfile:', error);
-        res.status(500).json({ message: 'Server error' });
-    }
-};
-
 // Logout User
 export const logoutUser = async (req, res) => {
     res.clearCookie('token');
@@ -152,5 +128,36 @@ export const logoutUser = async (req, res) => {
 
 
 export const forgotPassword = async (req, res) => {
-    res.status(200).json({ success: true, message: 'Forgot Password' });
+    const { email } = req.body;
+    try {
+        const user = await User.findOne({ email });
+
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        //generate reset token 
+        const resetToken = crypto.randomBytes(20).toString('hex');
+        const resetTokenExpiresAt = Date.now() + 10 * 60 * 1000; // 10 minutes
+
+        user.resetPasswordToken = resetToken;
+        user.resetPasswordExpiresAt = resetTokenExpiresAt;
+
+        await user.save();
+
+        // Send email
+        await sendPasswordResetEmail(user.email, `${process.env.CLIENT_URL}/reset-password/${resetToken}`);
+
+        res.status(200).json({ message: 'Reset password link sent to your email' });
+
+
+    } catch (error) {
+        console.error('Error in forgotPassword:', error);
+        res.status(500).json({ message: 'Server error' });
+
+    }
 };
+
+export const resetPassword = async (req, res) => {
+    res.status(200).json({ message: 'Reset password' });
+}
